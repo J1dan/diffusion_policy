@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 import torch
 import torch.nn as nn
 from diffusion_policy.model.common.module_attr_mixin import ModuleAttrMixin
@@ -7,7 +7,7 @@ from diffusion_policy.model.common.normalizer import LinearNormalizer
 class BaseLowdimPolicy(ModuleAttrMixin):  
     # ========= inference  ============
     # also as self.device and self.dtype for inference device transfer
-    def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def predict_action(self, obs_dict: Dict[str, torch.Tensor], guide: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         """
         obs_dict:
             obs: B,To,Do

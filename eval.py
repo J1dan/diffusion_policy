@@ -44,6 +44,11 @@ def main(checkpoint, output_dir, device):
     policy.to(device)
     policy.eval()
     
+    # Print the name of the policy being run
+    print(f"Running policy: {type(policy).__name__}")
+    print(f"Policy configuration: {cfg}")
+
+
     # run eval
     env_runner = hydra.utils.instantiate(
         cfg.task.env_runner,

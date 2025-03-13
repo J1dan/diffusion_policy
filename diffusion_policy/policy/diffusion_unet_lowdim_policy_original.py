@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -49,7 +49,6 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         self.obs_as_global_cond = obs_as_global_cond
         self.pred_action_steps_only = pred_action_steps_only
         self.oa_step_convention = oa_step_convention
-        self.alignment_strategy = "stochastic-sampling" # ['post-hoc', 'output-perturb', 'biased-initialization', 'guided-diffusion', 'stochastic-sampling']
         self.kwargs = kwargs
 
         if num_inference_steps is None:
@@ -60,7 +59,7 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
     def conditional_sample(self, 
             condition_data, condition_mask,
             local_cond=None, global_cond=None,
-            generator=None, guide=None,
+            generator=None,
             # keyword arguments to scheduler.step
             **kwargs
             ):
@@ -72,91 +71,24 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             dtype=condition_data.dtype,
             device=condition_data.device,
             generator=generator)
-
-        if guide is not None and self.alignment_strategy == 'biased-initialization':
-            indices = torch.linspace(0, guide.shape[0]-1, trajectory.shape[1], dtype=int)
-            init_sample = torch.unsqueeze(guide[indices], dim=0) # (1, pred_horizon, action_dim)
-            init_noise_std = 0.5
-            trajectory = init_noise_std * trajectory + init_sample
-            # return trajectory
-
-
+    
         # set step values
         scheduler.set_timesteps(self.num_inference_steps)
-
-
-        MCMC_steps = 1
-        if guide is not None and self.alignment_strategy == 'stochastic-sampling':
-            MCMC_steps = 4
-
-        start_influence_step = self.num_inference_steps
-        if guide is not None and self.alignment_strategy == 'biased-initialization':
-            start_influence_step = 50 ###
-
-        final_influence_step = self.num_inference_steps
-        if self.alignment_strategy in ['guided-diffusion', 'stochastic-sampling']:
-            final_influence_step = 0 
-
 
         for t in scheduler.timesteps:
             # 1. apply conditioning
             trajectory[condition_mask] = condition_data[condition_mask]
 
-            if t > start_influence_step:
-                print('SKIPPING TIMESTEP: ', t)
-                continue
-            for i in range(MCMC_steps):
-                # Predict model output.
-                model_output = model(trajectory, t, 
-                    local_cond=local_cond, global_cond=global_cond)
+            # 2. predict model output
+            model_output = model(trajectory, t, 
+                local_cond=local_cond, global_cond=global_cond)
 
-                # trajectory = scheduler.step(
-                #     model_output, t, trajectory, 
-                #     generator=generator,
-                #     **kwargs
-                #     ).prev_sample
-
-                # add interaction gradient
-                if guide is not None and t > final_influence_step:
-                    grad = self.guide_gradient(trajectory, guide)
-                    if self.alignment_strategy == 'guided-diffusion':
-                        guide_ratio = 20 
-                    elif self.alignment_strategy == 'stochastic-sampling':
-                        guide_ratio = 60 
-                    else:
-                        guide_ratio = 0
-                    model_output = model_output + guide_ratio * grad
-                else:
-                    pass
-                    # print('NOT ADDING INTERACTION GRADIENT AT TIMESTEP: ', t)
-
-                # Compute previous image: x_t -> x_t-1
-                scheduler_output = self.noise_scheduler.step(model_output, t, trajectory, generator=generator, **kwargs)
-                prev_trajectory = scheduler_output.prev_sample
-                clean_trajectory = scheduler_output.pred_original_sample
-
-                if i < MCMC_steps - 1:
-                    # print('mcmc step i: ', i, 'at t: ', t)
-                    std = 1
-                    noise = std * torch.randn(clean_trajectory.shape, device=clean_trajectory.device)
-                    trajectory = self.noise_scheduler.add_noise(clean_trajectory, noise, t)
-                else:
-                    # print('final diffusion step at t:', t)
-                    trajectory = prev_trajectory
-
-
-
-
-            # # 2. predict model output
-            # model_output = model(trajectory, t, 
-            #     local_cond=local_cond, global_cond=global_cond)
-
-            # # 3. compute previous image: x_t -> x_t-1
-            # trajectory = scheduler.step(
-            #     model_output, t, trajectory, 
-            #     generator=generator,
-            #     **kwargs
-            #     ).prev_sample
+            # 3. compute previous image: x_t -> x_t-1
+            trajectory = scheduler.step(
+                model_output, t, trajectory, 
+                generator=generator,
+                **kwargs
+                ).prev_sample
         
         # finally make sure conditioning is enforced
         trajectory[condition_mask] = condition_data[condition_mask]        
@@ -164,7 +96,7 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         return trajectory
 
 
-    def predict_action(self, obs_dict: Dict[str, torch.Tensor], guide: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
+    def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
         obs_dict: must include "obs" key
         result: must include "action" key
@@ -318,22 +250,3 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         loss = reduce(loss, 'b ... -> b (...)', 'mean')
         loss = loss.mean()
         return loss
-
-    def guide_gradient(self, naction, guide):
-        # naction: (B, pred_horizon, action_dim);
-        # guide: (guide_horizon, action_dim)
-        # print('noisy action shape:', naction.shape, 'guide shape:', guide.shape)
-        # print('mean and std of naction', naction.mean(), naction.std())
-        # print('mean and std of guide', guide.mean(), guide.std())
-
-        assert naction.shape[2] == 2 and guide.shape[1] == 2
-        indices = torch.linspace(0, guide.shape[0]-1, naction.shape[1], dtype=int)
-        guide = torch.unsqueeze(guide[indices], dim=0) # (1, pred_horizon, action_dim)
-        assert guide.shape == (1, naction.shape[1], naction.shape[2])
-        with torch.enable_grad():
-            naction = naction.clone().detach().requires_grad_(True)
-            dist = torch.linalg.norm(naction - guide, dim=2, ord=2) # (B, pred_horizon)
-            dist = dist.mean(dim=1) # (B,)
-            grad = torch.autograd.grad(dist, naction, grad_outputs=torch.ones_like(dist), create_graph=False)[0]
-            # naction.detach()
-        return grad
