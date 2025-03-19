@@ -284,7 +284,8 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
 
                 # run policy
                 with torch.no_grad():
-                    action_dict = policy.predict_action(obs_dict)
+                    guide = torch.tensor([[0.1, 0, 3, 0, 0, 0, 0, 0, 0, 0]] * 16, device=device, dtype=dtype)
+                    action_dict = policy.predict_action(obs_dict, guide=guide)
 
                 # device_transfer
                 np_action_dict = dict_apply(action_dict,
@@ -301,7 +302,6 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                 env_action = action
                 if self.abs_action:
                     env_action = self.undo_transform_action(action)
-
                 obs, reward, done, info = env.step(env_action)
                 done = np.all(done)
                 past_action = action
