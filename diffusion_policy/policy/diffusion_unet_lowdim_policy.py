@@ -117,8 +117,11 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
                 #     ).prev_sample
 
                 # add interaction gradient
+                # print('BEFORE ADDING INTERACTION GRADIENT AT TIMESTEP: ', t)
+                # print("guide is none? ", guide is None)
                 if guide is not None and t > final_influence_step:
                     grad = self.guide_gradient(trajectory, guide)
+                    # print('ADDING INTERACTION GRADIENT AT TIMESTEP: ', t)
                     if self.alignment_strategy == 'guided-diffusion':
                         guide_ratio = 20 
                     elif self.alignment_strategy == 'stochastic-sampling':
@@ -216,6 +219,7 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             cond_mask,
             local_cond=local_cond,
             global_cond=global_cond,
+            guide=guide,
             **self.kwargs)
         
         # unnormalize prediction
@@ -231,7 +235,6 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
                 start = To - 1
             end = start + self.n_action_steps
             action = action_pred[:,start:end]
-        
         result = {
             'action': action,
             'action_pred': action_pred
@@ -322,11 +325,9 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
     def guide_gradient(self, naction, guide):
         # naction: (B, pred_horizon, action_dim);
         # guide: (guide_horizon, action_dim)
-        # print('noisy action shape:', naction.shape, 'guide shape:', guide.shape)
-        # print('mean and std of naction', naction.mean(), naction.std())
-        # print('mean and std of guide', guide.mean(), guide.std())
 
-        assert naction.shape[2] == 2 and guide.shape[1] == 2
+        # print('naction shape:', naction.shape, 'guide shape:', guide.shape)
+        assert naction.shape[2] == 10 and guide.shape[1] == 10
         indices = torch.linspace(0, guide.shape[0]-1, naction.shape[1], dtype=int)
         guide = torch.unsqueeze(guide[indices], dim=0) # (1, pred_horizon, action_dim)
         assert guide.shape == (1, naction.shape[1], naction.shape[2])
@@ -335,5 +336,6 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             dist = torch.linalg.norm(naction - guide, dim=2, ord=2) # (B, pred_horizon)
             dist = dist.mean(dim=1) # (B,)
             grad = torch.autograd.grad(dist, naction, grad_outputs=torch.ones_like(dist), create_graph=False)[0]
+            grad[:, :, 3:] = 0
             # naction.detach()
         return grad
