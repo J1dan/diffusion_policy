@@ -22,7 +22,8 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 @click.option('-c', '--checkpoint', required=True)
 @click.option('-o', '--output_dir', required=True)
 @click.option('-d', '--device', default='cuda:0')
-def main(checkpoint, output_dir, device):
+@click.option('-s', '--guide_scaling_factor', default=None)
+def main(checkpoint, output_dir, device, guide_scaling_factor):
     if os.path.exists(output_dir):
         click.confirm(f"Output path {output_dir} already exists! Overwrite?", abort=True)
     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -53,6 +54,7 @@ def main(checkpoint, output_dir, device):
     env_runner = hydra.utils.instantiate(
         cfg.task.env_runner,
         output_dir=output_dir)
+    env_runner.guide_scaling_factor = float(guide_scaling_factor)
     runner_log = env_runner.run(policy)
     
     # dump log to json

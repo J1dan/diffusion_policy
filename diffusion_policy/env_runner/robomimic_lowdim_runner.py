@@ -65,7 +65,8 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             past_action=False,
             abs_action=False,
             tqdm_interval_sec=5.0,
-            n_envs=None
+            n_envs=None,
+            guide_scaling_factor=None
         ):
         """
         Assuming:
@@ -140,7 +141,6 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                     n_action_steps=env_n_action_steps,
                     max_episode_steps=max_steps
                 )
-
         env_fns = [env_fn] * n_envs
         env_seeds = list()
         env_prefixs = list()
@@ -202,7 +202,6 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             env_seeds.append(seed)
             env_prefixs.append('test/')
             env_init_fn_dills.append(dill.dumps(init_fn))
-        
         env = AsyncVectorEnv(env_fns)
         # env = SyncVectorEnv(env_fns)
 
@@ -224,6 +223,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
         self.rotation_transformer = rotation_transformer
         self.abs_action = abs_action
         self.tqdm_interval_sec = tqdm_interval_sec
+        self.guide_scaling_factor = guide_scaling_factor
 
     def run(self, policy: BaseLowdimPolicy):
         device = policy.device
@@ -284,8 +284,9 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
 
                 # run policy
                 with torch.no_grad():
-                    guide = torch.tensor([[0.1, 0, 3, 0, 0, 0, 0, 0, 0, 0]] * 16, device=device, dtype=dtype)
-                    action_dict = policy.predict_action(obs_dict, guide=guide)
+                    guide = torch.tensor([[0.1, 0.03, 0.9, 0, 0, 0, 0, 0, 0, 0]] * 16, device=device, dtype=dtype)
+                    action_dict = policy.predict_action(obs_dict, guide=guide, guide_scaling_factor=self.guide_scaling_factor)
+                    # action_dict = policy.predict_action(obs_dict)
 
                 # device_transfer
                 np_action_dict = dict_apply(action_dict,
@@ -302,6 +303,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                 env_action = action
                 if self.abs_action:
                     env_action = self.undo_transform_action(action)
+                    # print(env_action[..., 2])
                 obs, reward, done, info = env.step(env_action)
                 done = np.all(done)
                 past_action = action

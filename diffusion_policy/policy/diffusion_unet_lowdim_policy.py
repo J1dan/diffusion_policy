@@ -9,6 +9,8 @@ from diffusion_policy.model.common.normalizer import LinearNormalizer
 from diffusion_policy.policy.base_lowdim_policy import BaseLowdimPolicy
 from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
 from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
+from diffusion_policy.common.guide_function import RepulsiveGradients
+import copy
 
 class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
     def __init__(self, 
@@ -51,16 +53,15 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         self.oa_step_convention = oa_step_convention
         self.alignment_strategy = "stochastic-sampling" # ['post-hoc', 'output-perturb', 'biased-initialization', 'guided-diffusion', 'stochastic-sampling']
         self.kwargs = kwargs
-
+        assert self.alignment_strategy in ['post-hoc', 'guided-diffusion', 'stochastic-sampling', 'biased-initialization', 'output-perturb'], 'Invalid alignment strategy: ' + str(self.alignment_strategy)
         if num_inference_steps is None:
             num_inference_steps = noise_scheduler.config.num_train_timesteps
         self.num_inference_steps = num_inference_steps
-    
     # ========= inference  ============
     def conditional_sample(self, 
             condition_data, condition_mask,
             local_cond=None, global_cond=None,
-            generator=None, guide=None,
+            generator=None, guide=None, guide_scaling_factor=None,
             # keyword arguments to scheduler.step
             **kwargs
             ):
@@ -72,7 +73,8 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             dtype=condition_data.dtype,
             device=condition_data.device,
             generator=generator)
-
+        # guide_to_traj = guide
+        # guide = None
         if guide is not None and self.alignment_strategy == 'biased-initialization':
             indices = torch.linspace(0, guide.shape[0]-1, trajectory.shape[1], dtype=int)
             init_sample = torch.unsqueeze(guide[indices], dim=0) # (1, pred_horizon, action_dim)
@@ -120,7 +122,13 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
                 # print('BEFORE ADDING INTERACTION GRADIENT AT TIMESTEP: ', t)
                 # print("guide is none? ", guide is None)
                 if guide is not None and t > final_influence_step:
-                    grad = self.guide_gradient(trajectory, guide)
+                    grad = RepulsiveGradients.compute_repulsive_gradient(
+                            trajectory, 
+                            guide, 
+                            method="inverse_square",  # Choose your preferred method
+                            scaling_factor = guide_scaling_factor
+                        )
+                    # grad = self.inverse_square_repulsive_gradient(trajectory, guide)
                     # print('ADDING INTERACTION GRADIENT AT TIMESTEP: ', t)
                     if self.alignment_strategy == 'guided-diffusion':
                         guide_ratio = 20 
@@ -162,12 +170,23 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             #     ).prev_sample
         
         # finally make sure conditioning is enforced
-        trajectory[condition_mask] = condition_data[condition_mask]        
+        # grad = RepulsiveGradients.compute_repulsive_gradient(
+        #     trajectory, 
+        #     guide_to_traj, 
+        #     method="inverse_square",  # Choose your preferred method
+        #     power=4  # Optional parameters specific to the chosen method
+        # )
+        # # print(f"Trajectory[..., 2] range: min={trajectory[..., 2].min().item()}, max={trajectory[..., 2].max().item()}")
+
+        # trajectory = trajectory + 0.12 * grad
+        
+        trajectory[condition_mask] = condition_data[condition_mask]
+        # print(trajectory[..., 2])     
 
         return trajectory
 
 
-    def predict_action(self, obs_dict: Dict[str, torch.Tensor], guide: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
+    def predict_action(self, obs_dict: Dict[str, torch.Tensor], guide: Optional[torch.Tensor] = None, guide_scaling_factor: Optional[float] = None) -> Dict[str, torch.Tensor]:
         """
         obs_dict: must include "obs" key
         result: must include "action" key
@@ -214,18 +233,21 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             cond_mask[:,:To,Da:] = True
 
         # run sampling
+        guide = self.normalizer['action'].normalize(guide) if guide is not None else None
         nsample = self.conditional_sample(
             cond_data, 
             cond_mask,
             local_cond=local_cond,
             global_cond=global_cond,
             guide=guide,
+            guide_scaling_factor=guide_scaling_factor,
             **self.kwargs)
         
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
         action_pred = self.normalizer['action'].unnormalize(naction_pred)
-
+        # unnormalized_guide = self.normalizer['action'].unnormalize(dummy_guide) if dummy_guide is not None else None
+        # print('guide:', unnormalized_guide)
         # get action
         if self.pred_action_steps_only:
             action = action_pred
@@ -339,3 +361,38 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             grad[:, :, 3:] = 0
             # naction.detach()
         return grad
+    
+    # def inverse_square_repulsive_gradient(self, naction, obstacle):
+    #     """
+    #     Classic inverse square repulsion - stronger at close range, gradually decreases
+    #     """
+    #     assert naction.shape[2] == 10 and obstacle.shape[1] == 10
+        
+    #     # Sample obstacle positions to match prediction horizon
+    #     indices = torch.linspace(0, obstacle.shape[0]-1, naction.shape[1], dtype=int)
+    #     obstacle = torch.unsqueeze(obstacle[indices], dim=0)  # (1, pred_horizon, action_dim)
+        
+    #     with torch.enable_grad():
+    #         naction = naction.clone().detach().requires_grad_(True)
+            
+    #         # Calculate distance between action and obstacle (position only)
+    #         position_diff = naction[:, :, :3] - obstacle[:, :, :3]
+    #         dist = torch.linalg.norm(position_diff, dim=2)  # (B, pred_horizon)
+    #         safe_dist = torch.clamp(dist, min=1e-6)  # Prevent division by zero
+            
+    #         # Inverse square repulsive potential (1/r²)
+    #         repulsive_potential = 0.0065 / (safe_dist ** 2) #0.005: too weak # 0.01
+    #         total_potential = repulsive_potential.sum(dim=1)
+            
+    #         # Calculate gradient
+    #         grad = torch.autograd.grad(
+    #             total_potential, 
+    #             naction, 
+    #             grad_outputs=torch.ones_like(total_potential),
+    #             create_graph=False
+    #         )[0]
+            
+    #         # Only apply gradient to position components
+    #         grad[:, :, 3:] = 0
+            
+    #     return -grad  # Negate to push away from obstacle
