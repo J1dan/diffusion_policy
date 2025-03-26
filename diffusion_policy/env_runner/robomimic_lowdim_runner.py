@@ -145,14 +145,12 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
         env_seeds = list()
         env_prefixs = list()
         env_init_fn_dills = list()
-
         # train
         with h5py.File(dataset_path, 'r') as f:
             for i in range(n_train):
                 train_idx = train_start_idx + i
                 enable_render = i < n_train_vis
                 init_state = f[f'data/demo_{train_idx}/states'][0]
-
                 def init_fn(env, init_state=init_state, 
                     enable_render=enable_render):
                     # setup rendering
@@ -170,7 +168,6 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                     # switch to init_state reset
                     assert isinstance(env.env.env, RobomimicLowdimWrapper)
                     env.env.env.init_state = init_state
-
                 env_seeds.append(train_idx)
                 env_prefixs.append('train/')
                 env_init_fn_dills.append(dill.dumps(init_fn))
@@ -284,7 +281,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
 
                 # run policy
                 with torch.no_grad():
-                    guide = torch.tensor([[0.1, 0.03, 0.9, 0, 0, 0, 0, 0, 0, 0]] * 16, device=device, dtype=dtype)
+                    guide = torch.tensor([[0.1, 0.03, 1.0, 0, 0, 0, 0, 0, 0, 0]] * 16, device=device, dtype=dtype)
                     action_dict = policy.predict_action(obs_dict, guide=guide, guide_scaling_factor=self.guide_scaling_factor)
                     # action_dict = policy.predict_action(obs_dict)
 
