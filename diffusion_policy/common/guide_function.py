@@ -96,7 +96,7 @@ class RepulsiveGradients:
         return -scaling_factor*grad  # Negate to push away from obstacle #-0.005 does not work well
     
     @staticmethod
-    def exponential_gradient(naction, obstacle, alpha=10.0, **kwargs):
+    def exponential_gradient(naction, obstacle, alpha=10.0, scaling_factor = 0.001, **kwargs):
         """
         Exponential repulsion - very strong at close range with rapid falloff.
         
@@ -113,7 +113,6 @@ class RepulsiveGradients:
         # Sample obstacle positions to match prediction horizon
         indices = torch.linspace(0, obstacle.shape[0]-1, naction.shape[1], dtype=int)
         obstacle = torch.unsqueeze(obstacle[indices], dim=0)  # (1, pred_horizon, action_dim)
-        
         with torch.enable_grad():
             naction = naction.clone().detach().requires_grad_(True)
             
@@ -135,7 +134,6 @@ class RepulsiveGradients:
             
             # Only apply gradient to position components
             grad[:, :, 3:] = 0
-
 
 
             for axis in range(3):  # x, y, z axes
@@ -165,7 +163,7 @@ class RepulsiveGradients:
             # condition = torch.abs(y_action - obstacle[:, :, 1]) > 0.1
             # grad[condition] = 0
         # print("Grad torch:", grad)
-        return -0.8*grad  # Negate to push away from obstacle
+        return -scaling_factor*grad  # Negate to push away from obstacle
     
     @staticmethod
     def power_gradient(naction, obstacle, power=4, **kwargs):
