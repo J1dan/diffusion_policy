@@ -45,6 +45,10 @@ def main(checkpoint, output_dir, device, guide_scaling_factor):
     policy.to(device)
     policy.eval()
     
+    # cfg['task']['env_runner']['n_train'] = 1
+    # cfg['task']['env_runner']['n_test'] = 1
+    # cfg['task']['env_runner']['n_envs'] = 1
+
     # Print the name of the policy being run
     print(f"Running policy: {type(policy).__name__}")
     print(f"Policy configuration: {cfg}")
