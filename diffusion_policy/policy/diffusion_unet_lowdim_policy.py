@@ -174,7 +174,7 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         #     trajectory, 
         #     guide_to_traj, 
         #     method="inverse_square",  # Choose your preferred method
-        #     power=4  # Optional parameters specific to the chosen method
+        #     scaling_factor = guide_scaling_factor
         # )
         # # print(f"Trajectory[..., 2] range: min={trajectory[..., 2].min().item()}, max={trajectory[..., 2].max().item()}")
 
@@ -233,6 +233,8 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             cond_mask[:,:To,Da:] = True
 
         # run sampling
+        # guide = None
+        # print("\033[94mNormalizing guide...\033[0m")  # Adding blue color to the text
         guide = self.normalizer['action'].normalize(guide) if guide is not None else None
         nsample = self.conditional_sample(
             cond_data, 
@@ -245,6 +247,7 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
+        # print("\033[94mUnnormalizing action...\033[0m")  # Adding blue color to the text
         action_pred = self.normalizer['action'].unnormalize(naction_pred)
         # unnormalized_guide = self.normalizer['action'].unnormalize(dummy_guide) if dummy_guide is not None else None
         # print('guide:', unnormalized_guide)
