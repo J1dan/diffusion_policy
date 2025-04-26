@@ -281,7 +281,13 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
 
                 # run policy
                 with torch.no_grad():
-                    guide = torch.tensor([[0.1, 0.03, 1.0, 0, 0, 0, 0, 0, 0, 0]] * 16, device=device, dtype=dtype)
+                    # guide = torch.tensor([[0.1, 0.03, 1.0, 0, 0, 0, 0]] * 16, device=device, dtype=dtype)
+                    obst_pos = np.array([0.1, 0.03, 1.0])
+                    curr_ee_pos = np_obs_dict['obs'][:, -1, 14:17]
+                    # print(np_obs_dict['obs'])
+                    guide = np.zeros([np_obs_dict['obs'].shape[0], 16, 7])
+                    guide[:, :, :3] += 1 / (obst_pos - curr_ee_pos).reshape([-1, 1, 3])
+                    guide = torch.tensor(guide, device=device, dtype=dtype)
                     action_dict = policy.predict_action(obs_dict, guide=guide, guide_scaling_factor=self.guide_scaling_factor)
                     # action_dict = policy.predict_action(obs_dict)
 

@@ -76,8 +76,9 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         # guide_to_traj = guide
         # guide = None
         if guide is not None and self.alignment_strategy == 'biased-initialization':
-            indices = torch.linspace(0, guide.shape[0]-1, trajectory.shape[1], dtype=int)
-            init_sample = torch.unsqueeze(guide[indices], dim=0) # (1, pred_horizon, action_dim)
+            indices = torch.linspace(0, guide.shape[1]-1, trajectory.shape[1], dtype=int)
+            # init_sample = torch.unsqueeze(guide[indices], dim=0) # (1, pred_horizon, action_dim)
+            init_sample = guide[indices] # (B, pred_horizon, action_dim)
             init_noise_std = 0.5
             trajectory = init_noise_std * trajectory + init_sample
             # return trajectory

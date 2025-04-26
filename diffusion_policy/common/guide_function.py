@@ -48,11 +48,15 @@ class RepulsiveGradients:
         Returns:
             torch.Tensor: Gradient to push away from obstacle
         """
-        assert naction.shape[2] == obstacle.shape[1], "Action and obstacle dimension mismatch"
+        if obstacle.ndim == 2:
+            assert naction.shape[2] == obstacle.shape[1], "Action and obstacle dimension mismatch"
+            # Sample obstacle positions to match prediction horizon
+            indices = torch.linspace(0, obstacle.shape[0]-1, naction.shape[1], dtype=int)
+            obstacle = torch.unsqueeze(obstacle[indices], dim=0)  # (1, pred_horizon, action_dim)
+        else:
+            assert naction.shape[2] == obstacle.shape[2], "Action and obstacle dimension mismatch"
+            indices = torch.linspace(0, obstacle.shape[1]-1, naction.shape[1], dtype=int)
         
-        # Sample obstacle positions to match prediction horizon
-        indices = torch.linspace(0, obstacle.shape[0]-1, naction.shape[1], dtype=int)
-        obstacle = torch.unsqueeze(obstacle[indices], dim=0)  # (1, pred_horizon, action_dim)
         
         with torch.enable_grad():
             naction = naction.clone().detach().requires_grad_(True)
