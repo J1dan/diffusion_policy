@@ -73,8 +73,8 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             dtype=condition_data.dtype,
             device=condition_data.device,
             generator=generator)
-        guide_to_traj = guide
-        guide = None
+        # guide_to_traj = guide
+        # guide = None
         if guide is not None and self.alignment_strategy == 'biased-initialization':
             indices = torch.linspace(0, guide.shape[1]-1, trajectory.shape[1], dtype=int)
             # init_sample = torch.unsqueeze(guide[indices], dim=0) # (1, pred_horizon, action_dim)
@@ -171,166 +171,24 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             #     ).prev_sample
 
         # # finally make sure conditioning is enforced
-        grad = RepulsiveGradients.compute_repulsive_gradient(
-            trajectory, 
-            guide_to_traj, 
-            method="l2_attractive_gradient",  # Choose your preferred method
-            scaling_factor = guide_scaling_factor
-        )
+        # grad = RepulsiveGradients.compute_repulsive_gradient(
+        #     trajectory, 
+        #     guide_to_traj, 
+        #     method="inverse_square",  # Choose your preferred method
+        #     scaling_factor = guide_scaling_factor
+        # )
         # unnormalized_guide = self.normalizer['action'].unnormalize(guide_to_traj)
         # if (unnormalized_guide[..., 2] < 0).any():
         #     print("Grad torch:", unnormalized_guide[:, 2])
 
         # # print(f"Trajectory[..., 2] range: min={trajectory[..., 2].min().item()}, max={trajectory[..., 2].max().item()}")
 
-        trajectory = trajectory - 0.12 * grad
+        # trajectory = trajectory + 0.12 * grad
         
         trajectory[condition_mask] = condition_data[condition_mask]
         # print(trajectory[..., 2])     
 
         return trajectory
-
-    def smc_conditional_sample(self, 
-            condition_data, condition_mask,
-            local_cond=None, global_cond=None,
-            generator=None, guide=None, guide_scaling_factor=None,
-            # keyword arguments to scheduler.step
-            K_particles=8,
-            **kwargs
-            ):
-        """Sequential Monte‑Carlo product‑of‑experts sampler for diffusion guidance.
-        Args:
-            condition_data:   data to condition on
-            condition_mask:   mask indicating which positions to condition on
-            local_cond:       local conditioning (maps to None in SMC)
-            global_cond:      global conditioning
-            generator:        torch.Generator
-            guide:            guide trajectory for alignment
-            guide_scaling_factor: scaling factor for guide
-            K_particles:      particles per trajectory
-            kwargs:           additional arguments to scheduler.step
-
-        Returns:
-            final_samples:    (batch_size, horizon, action_dim) final samples
-        """
-        device = condition_data.device
-        dtype = condition_data.dtype
-        
-        # Extract batch size and shape information
-        batch_size = condition_data.shape[0]
-        horizon, a_dim = condition_data.shape[1], condition_data.shape[2]
-        
-        # Initialize particle cloud
-        shape = (batch_size, K_particles, horizon, a_dim)
-        particles = torch.randn(shape, dtype=dtype, device=device, generator=generator)
-        logw = torch.zeros(batch_size, K_particles, device=device)   # log‑weights
-        
-        # Set guidance strength based on alignment strategy
-        if guide is not None:
-            guide_ratio = 60.0 if self.alignment_strategy == "stochastic-sampling" else 20.0
-        else:
-            guide_ratio = 0.0
-        
-        # Apply condition mask to all particles
-        # Expand condition_data and mask to match particles shape
-        expanded_condition = condition_data.unsqueeze(1).expand(-1, K_particles, -1, -1)
-        expanded_mask = condition_mask.unsqueeze(1).expand(-1, K_particles, -1, -1)
-        particles = torch.where(expanded_mask, expanded_condition, particles)
-        
-        # Set up timesteps
-        self.noise_scheduler.set_timesteps(self.num_inference_steps)
-        timesteps = list(self.noise_scheduler.timesteps)
-        
-        # Iterate over noise levels
-        for t_idx, t in enumerate(timesteps):
-            # Apply conditioning at each step
-            particles = torch.where(expanded_mask, expanded_condition, particles)
-            
-            # Flatten particles for model input
-            flat_part = particles.view(-1, horizon, a_dim)  # merge batch & K
-            
-            # Prepare global conditioning if provided
-            expanded_global_cond = None
-            if global_cond is not None:
-                expanded_global_cond = global_cond.repeat_interleave(K_particles, 0)
-            
-            # Run model on all particles
-            model_out = self.model(
-                flat_part,
-                torch.full(flat_part.shape[:1], t, dtype=torch.long, device=device),
-                local_cond=None,  # local_cond not used in SMC
-                global_cond=expanded_global_cond,
-            ).view_as(particles)
-            
-            # Add alignment guidance using RepulsiveGradients
-            if guide is not None and guide_ratio > 0:
-                # Use RepulsiveGradients instead of guide_gradient
-                # We need to handle the shape difference - particles is (batch_size, K_particles, horizon, a_dim)
-                # but RepulsiveGradients expects (batch_size, horizon, a_dim)
-                
-                # Reshape particles for gradient computation
-                flat_particles = particles.view(-1, horizon, a_dim)
-                repeated_guide = guide.repeat_interleave(K_particles, 0)
-                
-                # Compute gradients
-                flat_grad = RepulsiveGradients.compute_repulsive_gradient(
-                    flat_particles,
-                    repeated_guide,
-                    method="l2_attractive_gradient",
-                    scaling_factor=guide_scaling_factor
-                )
-                
-                # Reshape gradients back to match particles shape
-                grad = flat_grad.view_as(particles)
-                model_out = model_out + guide_ratio * grad
-                
-                # Compute energy for weight updates (using L2 distance as a proxy for the energy)
-                # This replaces the guide_energy function from the original
-                prev_dist = ((particles - guide.unsqueeze(1))**2).sum(dim=-1).mean(dim=-1)  # (B, K)
-                
-            # Compute the next state using scheduler
-            scheduler_out = self.noise_scheduler.step(
-                model_out.view(-1, horizon, a_dim),
-                t,
-                flat_part,
-                generator=generator,
-                **kwargs
-            )
-            x_next = scheduler_out.prev_sample.view_as(particles)
-            
-            # Update incremental log-weights if using guide
-            if guide is not None and guide_ratio > 0:
-                # Compute energy of new state (L2 distance to guide)
-                next_dist = ((x_next - guide.unsqueeze(1))**2).sum(dim=-1).mean(dim=-1)  # (B, K)
-                
-                # Update weights based on energy difference (prefer particles closer to guide)
-                logw += guide_ratio * (prev_dist - next_dist)
-            
-            particles = x_next
-            
-            # Apply conditioning after step
-            particles = torch.where(expanded_mask, expanded_condition, particles)
-            
-            # Normalize & resample (systematic)
-            w = (logw - logw.max(dim=1, keepdim=True).values).exp()  # avoid inf
-            w = w / w.sum(dim=1, keepdim=True)                      # (B,K)
-            
-            # # ESS diagnostic (optional)
-            # ESS = 1. / (w**2).sum(dim=1)  # (B,)
-            
-            # Resample particles according to weights
-            indices = torch.multinomial(w, num_samples=K_particles, replacement=True)
-            batch_idx = torch.arange(batch_size, device=device).unsqueeze(1).expand(-1, K_particles)
-            particles = particles[batch_idx, indices]
-            logw = torch.zeros_like(logw)  # reset weights after multinomial
-        
-        # Return one representative sample per trajectory (first particle)
-        final_samples = particles[:, 0]  # (batch_size, horizon, a_dim)
-        
-        # Final conditioning to ensure constraints are met
-        final_samples = torch.where(condition_mask, condition_data, final_samples)
-        
-        return final_samples
 
 
     def predict_action(self, obs_dict: Dict[str, torch.Tensor], guide: Optional[torch.Tensor] = None, guide_scaling_factor: Optional[float] = None) -> Dict[str, torch.Tensor]:

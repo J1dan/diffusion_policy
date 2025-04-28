@@ -101,7 +101,7 @@ class RepulsiveGradients:
                     print(f"Number of misalignments: {misaligned.sum().item()}")
             
             # Apply condition: if |y_action - obst_to_ee[1]| > 0.1, set grad to 0
-            # condition = torch.abs(obst_to_ee[:, :, 1]) > 0.1
+            # condition = torch.abs(obst_to_ee[:, :, 1]) > 0.05
 
             # valid_mask = torch.abs(obst_to_ee[:, :, 1]) < 0.1
             # if torch.any(valid_mask):
@@ -119,7 +119,6 @@ class RepulsiveGradients:
 
             # if torch.any(condition):
             #     # Check for obst_to_ee[:, :, 2] where condition is True
-            #     print("123")
             #     grad[condition] = 0
             # if (grad[..., 2] > 0).any():
             #     print("grad[:, 2]: ")
@@ -171,7 +170,7 @@ class RepulsiveGradients:
             
             # Only apply gradient to position components
             grad[:, :, 3:] = 0
-            
+        print("grad: ", grad)
         # For attractive forces, we don't negate the gradient since we want to
         # move in the direction that reduces the distance (minimizes the L2 norm)
         return scaling_factor * grad

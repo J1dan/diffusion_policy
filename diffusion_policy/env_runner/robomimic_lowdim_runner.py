@@ -89,7 +89,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
         super().__init__(output_dir)
         if n_envs is None:
             n_envs = n_train + n_test
-        max_steps = 800
+        # max_steps = 800
         # handle latency step
         # to mimic latency, we request n_latency_steps additional steps 
         # of past observations, and the discard the last n_latency_steps
@@ -254,7 +254,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
 
             # start rollout
             obs = env.reset()
-            target_obj_pose = obs[:, -1, :3]
+            target_obj_pose = obs[:, -1, 14:17]
             # print("target_obj_pose:", target_obj_pose)
             past_action = None
             policy.reset()
@@ -283,35 +283,21 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                 # run policy
                 with torch.no_grad():
                     # guide = torch.tensor([[0.1, 0.03, 1.0, 0, 0, 0, 0]] * 16, device=device, dtype=dtype)
-                    obst_pos = np.array([0.1, 0.025, 0.85])
-                    # target_obj_pose = np_obs_dict['obs'][:, -1, :3]
-                    # print("target_obj_pose:", target_obj_pose)
-                    curr_ee_pos = np_obs_dict['obs'][:, -1, 14:17]
-                    # print(np_obs_dict['obs'])
-                    # print("curr_ee_pos[:, 1]: ", curr_ee_pos[:, 1])
+                    # obst_pos = np.array([0.1, 0.025, 0.85])
 
-                    guide_obstacle = np.zeros([np_obs_dict['obs'].shape[0], 16, 7])
+                    curr_ee_pos = np_obs_dict['obs'][:, -1, 28:31]
+
+                    # guide_obstacle = np.zeros([np_obs_dict['obs'].shape[0], 16, 7])
                     guide_object = np.zeros([np_obs_dict['obs'].shape[0], 16, 7])
-                    # guide[:, :, :3] += 1 / (obst_pos - curr_ee_pos).reshape([-1, 1, 3])
 
-                    guide_obstacle[:, :, :3] += (curr_ee_pos - obst_pos).reshape([-1, 1, 3])
+                    # guide_obstacle[:, :, :3] += (curr_ee_pos - obst_pos).reshape([-1, 1, 3])
                     guide_object[:, :, :3] += (curr_ee_pos - target_obj_pose).reshape([-1, 1, 3])
 
-                    guide_obstacle = torch.tensor(guide_obstacle, device=device, dtype=dtype)
+                    # guide_obstacle = torch.tensor(guide_obstacle, device=device, dtype=dtype)
                     guide_object = torch.tensor(guide_object, device=device, dtype=dtype)
 
 
                     action_dict = policy.predict_action(obs_dict, guide=guide_object, guide_scaling_factor=self.guide_scaling_factor)
-                    # action_dict = policy.predict_action(obs_dict)
-
-                    # guide_y = guide[:, :, 1]
-
-                    # guide_z = guide[:, :, 2]  # already a tensor
-
-                    # if (guide_z < 0).any():
-                    #     print("guide_z: ", guide_z)
-                    #     print("yes")
-
 
 
                 # device_transfer

@@ -12,7 +12,7 @@ num_intervals = int(input("Enter number of intervals: "))
 scaling_factors = np.linspace(start_scaling_factor, end_scaling_factor, num_intervals)
 
 # Define the parent output directory based on start/end scaling factors
-base_output_dir = f"data/2_{start_scaling_factor:.8f}-{end_scaling_factor:.8f}"
+base_output_dir = f"data/elevatewall/random2_test_{start_scaling_factor:.8f}-{end_scaling_factor:.8f}"
 os.makedirs(base_output_dir, exist_ok=True)  # Create parent directory if it doesn't exist
 
 # Define the base command with placeholders
@@ -23,6 +23,14 @@ base_command = (
     "--device cuda:0 "
     "--guide_scaling_factor {scaling_factor}"
 )
+
+# base_command = (
+#     "python eval.py "
+#     "--checkpoint ../../diffusion_policy_a/data/outputs/test900_smooth/checkpoints/epoch\=0250-test_mean_score\=0.065.ckpt "
+#     "--output_dir {output_dir} "
+#     "--device cuda:0 "
+#     "--guide_scaling_factor {scaling_factor}"
+# )
 
 # Store results
 results = []

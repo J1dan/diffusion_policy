@@ -24,8 +24,8 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 @click.option('-d', '--device', default='cuda:0')
 @click.option('-s', '--guide_scaling_factor', default=None)
 def main(checkpoint, output_dir, device, guide_scaling_factor):
-    if os.path.exists(output_dir):
-        click.confirm(f"Output path {output_dir} already exists! Overwrite?", abort=True)
+    # if os.path.exists(output_dir):
+    #     click.confirm(f"Output path {output_dir} already exists! Overwrite?", abort=True)
     pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
     
     # load checkpoint
