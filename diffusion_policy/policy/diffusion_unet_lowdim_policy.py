@@ -73,8 +73,8 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             dtype=condition_data.dtype,
             device=condition_data.device,
             generator=generator)
-        guide_to_traj = guide
-        guide = None
+        # guide_to_traj = guide
+        # guide = None
         if guide is not None and self.alignment_strategy == 'biased-initialization':
             indices = torch.linspace(0, guide.shape[1]-1, trajectory.shape[1], dtype=int)
             # init_sample = torch.unsqueeze(guide[indices], dim=0) # (1, pred_horizon, action_dim)
@@ -171,19 +171,19 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             #     ).prev_sample
 
         # # finally make sure conditioning is enforced
-        grad = RepulsiveGradients.compute_repulsive_gradient(
-            trajectory, 
-            guide_to_traj, 
-            method="l2_attractive_gradient",  # Choose your preferred method
-            scaling_factor = guide_scaling_factor
-        )
+        # grad = RepulsiveGradients.compute_repulsive_gradient(
+        #     trajectory, 
+        #     guide_to_traj, 
+        #     method="l2_attractive_gradient",  # Choose your preferred method
+        #     scaling_factor = guide_scaling_factor
+        # )
         # unnormalized_guide = self.normalizer['action'].unnormalize(guide_to_traj)
         # if (unnormalized_guide[..., 2] < 0).any():
         #     print("Grad torch:", unnormalized_guide[:, 2])
 
         # # print(f"Trajectory[..., 2] range: min={trajectory[..., 2].min().item()}, max={trajectory[..., 2].max().item()}")
 
-        trajectory = trajectory - 0.12 * grad
+        # trajectory = trajectory - 0.12 * grad
         
         trajectory[condition_mask] = condition_data[condition_mask]
         # print(trajectory[..., 2])     
@@ -383,7 +383,7 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
         # guide = None
         # print("\033[94mNormalizing guide...\033[0m")  # Adding blue color to the text
         guide = self.normalizer['action'].normalize(guide) if guide is not None else None
-        nsample = self.conditional_sample(
+        nsample = self.smc_conditional_sample(
             cond_data, 
             cond_mask,
             local_cond=local_cond,
